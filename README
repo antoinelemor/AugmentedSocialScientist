@@ -1,35 +1,34 @@
-# AugmentedSocialScientist enhancements
+AugmentedSocialScientist enhancements
 
-## About this fork
+About this fork
 
-this repository is a thin fork of [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist) with three main improvements:
-- adaptive training strategy for difficult labels (class 1 f1-score < 0.5)
-- automatic oversampling of the minority class in memory
-- native GPU detection on macOS (mps) as well as CUDA
+This repository is a thin fork of rubingshen/AugmentedSocialScientist with three main improvements:
+	•	Adaptive training strategy for difficult labels (class 1 f1-score < 0.5)
+	•	Automatic oversampling of the minority class in memory
+	•	Native GPU detection on macOS (MPS) as well as CUDA
 
-## New features
+New features
 
-### adaptive training for low-f1 tasks
+Adaptive training for low-f1 tasks
 
-if your previous model’s f1-score on the positive class is below 0.5, the training script will automatically:
-1. increase the batch size (64 instead of 32)
-2. lower the learning rate (1e-5 instead of 5e-5)
-3. apply a class-weighted loss (`pos_weight = n_neg / n_pos`)
-4. oversample the positive examples in memory until they roughly match the number of negatives
-5. train for an extended number of epochs (15 instead of the recorded best epoch)
+If your previous model’s f1-score on the positive class is below 0.5, the training script will automatically:
+	1.	Increase the batch size (64 instead of 32)
+	2.	Lower the learning rate (1e-5 instead of 5e-5)
+	3.	Apply a class-weighted loss (pos_weight = n_neg / n_pos)
+	4.	Oversample the positive examples in memory until they roughly match the number of negatives
+	5.	Train for an extended number of epochs (15 instead of your recorded best epoch)
 
-if f1 ≥ 0.5, the original defaults are kept:
-- batch size = 32
-- learning rate = 5e-5
-- no class weighting
-- no oversampling
-- epochs = best_epoch from your metrics csv (or 10 if missing)
+If the f1-score is equal to or above 0.5, the original defaults are kept:
+	•	Batch size = 32
+	•	Learning rate = 5e-5
+	•	No class weighting
+	•	No oversampling
+	•	Epochs = best_epoch from your metrics CSV (or 10 if missing)
 
-### improved gpu detection
+Improved GPU detection
 
-in `BertBase.__init__` (and `CamembertBase` alike), we now detect the available device as follows:
+In BertBase.__init__ (and similarly in CamembertBase), the device is now automatically detected as follows:
 
-python
 if torch.cuda.is_available():
     device = torch.device("cuda")
 elif torch.backends.mps.is_available():
@@ -39,15 +38,15 @@ else:
 
 macOS users on Apple silicon will see:
 
-mps is available. using the Apple Silicon GPU!
+MPS is available. Using the Apple Silicon GPU!
 
 Installation
 
-you can install directly from this repository:
+You can install directly from this repository:
 
 pip install git+https://github.com/yourusername/AugmentedSocialScientist.git
 
-or clone it and install in editable mode:
+Or clone and install it in editable mode:
 
 git clone https://github.com/yourusername/AugmentedSocialScientist.git
 cd AugmentedSocialScientist
@@ -58,19 +57,19 @@ Usage
 from AugmentedSocialScientist.bert_base import BertBase
 import torch
 
-# load your data
+# Load your data
 train_texts, train_labels = [...], [...]
 val_texts, val_labels     = [...], [...]
 
-# instantiate the model (cuda, mps, or cpu auto-detection)
+# Instantiate the model (CUDA, MPS or CPU will be selected automatically)
 model = BertBase(model_name="bert-base-cased")
 
-# decide hyperparameters based on previous f1 score
+# Decide hyperparameters based on the previous f1-score
 prev_f1 = 0.42
 if prev_f1 < 0.5:
     batch_size = 64
     lr         = 1e-5
-    pos_weight = torch.tensor([n_neg/n_pos], device=model.device)
+    pos_weight = torch.tensor([n_neg / n_pos], device=model.device)
     n_epochs   = 15
 else:
     batch_size = 32
@@ -78,11 +77,11 @@ else:
     pos_weight = None
     n_epochs   = your_best_epoch
 
-# prepare dataloaders
+# Prepare dataloaders
 train_loader = model.encode(train_texts, train_labels, batch_size=batch_size)
-val_loader   = model.encode(val_texts,   val_labels,   batch_size=batch_size)
+val_loader   = model.encode(val_texts, val_labels, batch_size=batch_size)
 
-# train and save the model
+# Train and save
 scores = model.run_training(
     train_loader,
     val_loader,
@@ -91,22 +90,17 @@ scores = model.run_training(
     pos_weight=pos_weight,
     save_model_as="my_model_name"
 )
-print("precision, recall, f1, support:", scores)
+print("Precision, recall, f1, support:", scores)
 
-# after training, the model is saved under ./models/my_model_name/
-# you can reload and use it like this:
+# After training, the model is saved under ./models/my_model_name/
+# You can load and use it like this:
 
 from AugmentedSocialScientist.bert_base import BertBase
-
 model = BertBase(model_name="bert-base-cased")
 trained_model = model.load_model("./models/my_model_name")
-predictions = model.predict_with_model(val_loader, "./models/my_model_name")
+preds = model.predict_with_model(val_loader, "./models/my_model_name")
 
 License
 
-same as the original project (MIT license).
+Same as the original project (MIT).
 
----
-
-Veux-tu aussi que je te propose une version encore un peu plus "pro" pour un dépôt GitHub public, avec un sommaire cliquable (`[toc]`), un badge de licence, etc.? 🚀  
-Cela donnerait encore plus de sérieux à ton fork si tu veux le publier proprement !
