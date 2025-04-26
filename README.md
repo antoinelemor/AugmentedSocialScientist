@@ -12,25 +12,17 @@ This repository is a thin fork of [rubingshen/AugmentedSocialScientist](https://
 
 ### Adaptive training for low-f1 tasks
 
-If your previous model’s f1-score on the positive class is below 0.5, the training script will automatically:
+If your previous model’s f1-score on the positive class is below 0.5, the training script will :
 
 1. Increase the batch size (64 instead of 32)
 2. Lower the learning rate (1e-5 instead of 5e-5)
 3. Apply a class-weighted loss (`pos_weight = n_neg / n_pos`)
-4. Oversample the positive examples in memory until they roughly match the number of negatives
-5. Train for an extended number of epochs (15 instead of your recorded best epoch)
-
-If the f1-score is greater than or equal to 0.5, the original defaults are kept:
-
-- Batch size = 32
-- Learning rate = 5e-5
-- No class weighting
-- No oversampling
-- Number of epochs = best epoch from your metrics CSV (or 10 if missing)
 
 ### Improved GPU detection
 
-In `BertBase.__init__` (and similarly in `CamembertBase`), the device is now automatically detected:
+In `BertBase.__init__` (and similarly in `CamembertBase`), the device is now automatically detected.
+
+### Example
 
 ```python
 if torch.cuda.is_available():
