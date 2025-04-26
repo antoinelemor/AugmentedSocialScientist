@@ -1,34 +1,38 @@
-AugmentedSocialScientist enhancements
+# AugmentedSocialScientist enhancements
 
-About this fork
+## About this fork
 
-This repository is a thin fork of rubingshen/AugmentedSocialScientist with three main improvements:
-	•	Adaptive training strategy for difficult labels (class 1 f1-score < 0.5)
-	•	Automatic oversampling of the minority class in memory
-	•	Native GPU detection on macOS (MPS) as well as CUDA
+This repository is a thin fork of [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist) with three main improvements:
 
-New features
+- Adaptive training strategy for difficult labels (class 1 f1-score < 0.5)
+- Automatic oversampling of the minority class in memory
+- Native GPU detection on macOS (MPS) as well as CUDA
 
-Adaptive training for low-f1 tasks
+## New features
+
+### Adaptive training for low-f1 tasks
 
 If your previous model’s f1-score on the positive class is below 0.5, the training script will automatically:
-	1.	Increase the batch size (64 instead of 32)
-	2.	Lower the learning rate (1e-5 instead of 5e-5)
-	3.	Apply a class-weighted loss (pos_weight = n_neg / n_pos)
-	4.	Oversample the positive examples in memory until they roughly match the number of negatives
-	5.	Train for an extended number of epochs (15 instead of your recorded best epoch)
 
-If the f1-score is equal to or above 0.5, the original defaults are kept:
-	•	Batch size = 32
-	•	Learning rate = 5e-5
-	•	No class weighting
-	•	No oversampling
-	•	Epochs = best_epoch from your metrics CSV (or 10 if missing)
+1. Increase the batch size (64 instead of 32)
+2. Lower the learning rate (1e-5 instead of 5e-5)
+3. Apply a class-weighted loss (`pos_weight = n_neg / n_pos`)
+4. Oversample the positive examples in memory until they roughly match the number of negatives
+5. Train for an extended number of epochs (15 instead of your recorded best epoch)
 
-Improved GPU detection
+If the f1-score is greater than or equal to 0.5, the original defaults are kept:
 
-In BertBase.__init__ (and similarly in CamembertBase), the device is now automatically detected as follows:
+- Batch size = 32
+- Learning rate = 5e-5
+- No class weighting
+- No oversampling
+- Number of epochs = best epoch from your metrics CSV (or 10 if missing)
 
+### Improved GPU detection
+
+In `BertBase.__init__` (and similarly in `CamembertBase`), the device is now automatically detected:
+
+```python
 if torch.cuda.is_available():
     device = torch.device("cuda")
 elif torch.backends.mps.is_available():
@@ -38,7 +42,7 @@ else:
 
 macOS users on Apple silicon will see:
 
-MPS is available. Using the Apple Silicon GPU!
+mps is available. using the Apple Silicon GPU!
 
 Installation
 
@@ -46,7 +50,7 @@ You can install directly from this repository:
 
 pip install git+https://github.com/yourusername/AugmentedSocialScientist.git
 
-Or clone and install it in editable mode:
+Or clone the repository and install it in editable mode:
 
 git clone https://github.com/yourusername/AugmentedSocialScientist.git
 cd AugmentedSocialScientist
@@ -81,7 +85,7 @@ else:
 train_loader = model.encode(train_texts, train_labels, batch_size=batch_size)
 val_loader   = model.encode(val_texts, val_labels, batch_size=batch_size)
 
-# Train and save
+# Train and save the model
 scores = model.run_training(
     train_loader,
     val_loader,
@@ -93,14 +97,11 @@ scores = model.run_training(
 print("Precision, recall, f1, support:", scores)
 
 # After training, the model is saved under ./models/my_model_name/
-# You can load and use it like this:
-
-from AugmentedSocialScientist.bert_base import BertBase
+# You can load and use it like this
 model = BertBase(model_name="bert-base-cased")
 trained_model = model.load_model("./models/my_model_name")
 preds = model.predict_with_model(val_loader, "./models/my_model_name")
 
 License
 
-Same as the original project (MIT).
-
+Same license as the original project (MIT).
