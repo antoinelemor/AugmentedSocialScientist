@@ -123,16 +123,7 @@ training_logs/
 
 ---
 
-## 5. Example notebooks
-
-See `notebooks/` for minimal end-to-end demos:
-
-* **binary_sentiment.ipynb** – fine-tune on IMDB, inspect CSV logs.  
-* **policy_frames_fr_en.ipynb** – multilingual training with forced reinforced pass.
-
----
-
-## 6. Installation
+## 5. Installation
 
 ```bash
 git clone https://github.com/<your-handle>/AugmentedSocialScientist.git
@@ -144,7 +135,7 @@ Requires **Python 3.10+**, `torch >= 2.0`, `transformers >= 4.40`.
 
 ---
 
-## 7. License & citation
+## 6. License & citation
 
 This fork remains under the original **MIT License**.  
 If you use it in academic work, please cite the upstream paper [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).
