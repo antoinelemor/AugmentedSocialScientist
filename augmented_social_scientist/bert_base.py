@@ -137,6 +137,7 @@ class BertBase(BertABC):
             input_loader = tqdm(input_ids, desc="Creating attention masks")
         else:
             input_loader = input_ids
+
         for sent in input_loader:
             att_mask = [int(token_id > 0) for token_id in sent]
             attention_masks.append(att_mask)
@@ -180,12 +181,19 @@ class BertBase(BertABC):
             best_model_criteria: str = "combined",
             f1_class_1_weight: float = 0.7,
             reinforced_learning: bool = False,
-            n_epochs_reinforced: int = 2
+            n_epochs_reinforced: int = 2,
+            rescue_low_class1_f1: bool = False,
+            f1_1_rescue_threshold: float = 0.0
     ) -> Tuple[Any, Any, Any, Any]:
         """
         Train, evaluate, and (optionally) save a BERT model. This method also logs training and validation
         metrics per epoch, handles best-model selection, and can optionally trigger reinforced learning if
         the best F1 on class 1 is below 0.6 at the end of normal training.
+
+        This method can also (optionally) apply a "rescue" logic for class 1 F1 scores that remain at 0
+        after normal training: if ``rescue_low_class1_f1=True`` and the best model's F1 for class 1 is 0,
+        the reinforced learning step will consider any small improvement of class 1's F1 (greater than
+        ``f1_1_rescue_threshold``) as sufficient to select a reinforced epoch's model.
 
         Parameters
         ----------
@@ -227,6 +235,15 @@ class BertBase(BertABC):
 
         n_epochs_reinforced: int, default=2
             Number of epochs for the reinforced learning phase (if triggered).
+
+        rescue_low_class1_f1: bool, default=False
+            If True, then during reinforced learning we check if the best normal-training
+            F1 for class 1 is 0. In that case, any RL epoch where class 1's F1 becomes greater
+            than ``f1_1_rescue_threshold`` is automatically considered a better model.
+
+        f1_1_rescue_threshold: float, default=0.0
+            The threshold above which a class 1 F1 (starting from 0 after normal training)
+            is considered a sufficient improvement to pick the reinforced epoch's model.
 
         Returns
         -------
@@ -542,6 +559,8 @@ class BertBase(BertABC):
                     f1_class_1_weight=f1_class_1_weight,
                     previous_best_metric=best_metric_val,
                     n_epochs_reinforced=n_epochs_reinforced,
+                    rescue_low_class1_f1=rescue_low_class1_f1,
+                    f1_1_rescue_threshold=f1_1_rescue_threshold
                 )
             else:
                 print("No reinforced training triggered.")
@@ -563,7 +582,9 @@ class BertBase(BertABC):
             best_model_criteria: str = "combined",
             f1_class_1_weight: float = 0.7,
             previous_best_metric: float = -1.0,
-            n_epochs_reinforced: int = 2
+            n_epochs_reinforced: int = 2,
+            rescue_low_class1_f1: bool = False,
+            f1_1_rescue_threshold: float = 0.0
     ) -> Tuple[float, str | None, Tuple[Any, Any, Any, Any] | None]:
         """
         A "reinforced training" procedure that is triggered if the final best model from normal
@@ -575,6 +596,9 @@ class BertBase(BertABC):
           - Logs each epoch's metrics to "reinforced_training_metrics.csv".
           - Uses the same best-model selection logic as normal training and logs to best_models.csv
             with a "training_phase" = "reinforced".
+          - If `rescue_low_class1_f1` is True and the best normal-training F1 for class 1 was 0,
+            then any RL epoch where class 1 F1 becomes > `f1_1_rescue_threshold` is automatically
+            selected as the best, overriding the standard combined metric.
 
         Parameters
         ----------
@@ -609,6 +633,13 @@ class BertBase(BertABC):
 
         n_epochs_reinforced: int, default=2
             Number of epochs for the reinforced training phase.
+
+        rescue_low_class1_f1: bool, default=False
+            If True, then if the best normal model had class 1 F1 == 0, any RL epoch achieving
+            class 1 F1 > `f1_1_rescue_threshold` is automatically considered an improvement.
+
+        f1_1_rescue_threshold: float, default=0.0
+            The threshold to detect a "small improvement" of class 1 F1 from 0.
 
         Returns
         -------
@@ -709,6 +740,24 @@ class BertBase(BertABC):
         for batch in test_dataloader:
             test_labels += batch[2].numpy().tolist()
 
+        # Detect if the best normal-training F1 for class 1 was exactly 0
+        # We'll use this to trigger the "rescue" logic below.
+        best_normal_f1_class_1_was_zero = False
+        # If we have a best_scores from normal training, check F1(class1)
+        if best_model_path_local and (previous_best_metric != -1.0):
+            # Attempt to compute the actual F1 from best_scores
+            # But best_scores might come from run_training
+            # We'll rely on the prior classification if needed.
+            # For safety, let's rely on best_scores if it's stored properly.
+            pass  # We'll handle logic if best_scores was carried over
+        else:
+            # If there's no prior metric or best_model_path, we consider normal training inconclusive
+            pass
+
+        # If the user explicitly wants rescue logic, let's see if we have a known F1=0 scenario
+        # We'll rely on the fact that if previous_best_metric is > -1, we had a valid model
+        # but let's not forcibly re-check that; we do it dynamically later.
+
         # Reinforced training epochs
         for epoch in range(n_epochs_reinforced):
             print(f"\n=== Reinforced Training: Epoch {epoch+1}/{n_epochs_reinforced} ===")
@@ -804,13 +853,40 @@ class BertBase(BertABC):
                     macro_f1
                 ])
 
-            # Check if this epoch yields a new best model
+            # -- Rescue Logic for Class 1 F1 = 0 from normal training --
+            # We'll interpret "best_model_path_local" and "previous_best_metric" to see if normal training
+            # might have had class 1's F1 = 0. If so, any improvement above `f1_1_rescue_threshold` is considered better.
+            rescue_override = False
+            if rescue_low_class1_f1 and previous_best_metric != -1.0:
+                # We must check if the best F1_1 from normal training was effectively 0.
+                # The simplest check: if combined metric is extremely low, or we keep track separately.
+                # Instead, let's rely on classification_report from the last best_scores if possible:
+                # best_scores is (precision, recall, f1, support).
+                # best_scores[2] -> f1 array, best_scores[2][1] is f1 for class1.
+                # If that was 0, we do the rescue logic.
+                if best_scores is not None:
+                    prev_f1_1 = best_scores[2][1]
+                    if prev_f1_1 == 0.0 and f1_1 > f1_1_rescue_threshold:
+                        # This RL epoch is automatically an improvement
+                        print(f"[Rescue Logic Triggered] Class 1 F1 moved from 0.0 to {f1_1:.4f}, "
+                              f"exceeding threshold {f1_1_rescue_threshold:.4f}")
+                        rescue_override = True
+
+            # Check if this epoch yields a new best model by normal combined logic
             if best_model_criteria == "combined":
                 combined_metric = f1_class_1_weight * f1_1 + (1.0 - f1_class_1_weight) * macro_f1
             else:
                 combined_metric = (f1_1 + macro_f1) / 2.0
 
-            if combined_metric > best_metric_val:
+            # If the rescue logic is triggered, we override combined_metric comparison
+            if rescue_override:
+                # Force "infinite" improvement to ensure we treat it as a new best
+                new_metric_val = combined_metric + 9999.0
+            else:
+                new_metric_val = combined_metric
+
+            # Standard best-model selection logic
+            if new_metric_val > best_metric_val:
                 print(f"New best (reinforced) model found at epoch {epoch + 1} with combined metric={combined_metric:.4f}.")
                 # Remove old best model if needed
                 if best_model_path_local is not None and os.path.isdir(best_model_path_local):
@@ -819,7 +895,7 @@ class BertBase(BertABC):
                     except OSError:
                         pass
 
-                best_metric_val = combined_metric
+                best_metric_val = new_metric_val
                 # Save new best model to a temporary path
                 if save_model_as is not None:
                     best_model_path_local = f"./models/{save_model_as}_reinforced_epoch_{epoch+1}"
