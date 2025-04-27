@@ -1,67 +1,66 @@
 # AugmentedSocialScientist enhanced fork
 
-> Fine-tuning BERT & friends for social-science projects, with robust tracking, smart model selection, and a safety-net if performance stalls.
+> Fine-tuning BERT & friends for social-science projects, with robust tracking, smart model selection, and a reinforced learning safety-net.
 
 ---
 
 ## 1. What is this fork?
 
-This repo is a **drop-in replacement** for the excellent original  
-[rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).  
-All base classes (`BertBase`, `CamembertBase`, …) still work the same way but I added a few extras :
+This repository is a **drop-in replacement** for the excellent original [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).  
+All base classes (`BertBase`, `CamembertBase`, …) function identically but include additional features:
 
-| What's new | What exactly |
-|-------|-------------------|
-| **Full metric logging** | Every epoch is logged to CSV—no more guessing what happened in the middle of the night. |
-| **Per-epoch checkpoints** | A checkpoint is written each epoch, but only the *best* one is kept. |
-| **Smart best-model picker** | Chooses the checkpoint that maximises a *combined metric* (70 % F1 on the positive class + 30 % macro F1 by default). |
-| **Automatic reinforced training** | If class 1 F1 < 0.60 after training, the code launches a short extra pass with over-sampling, larger batches and weighted loss. |
-| **Apple Silicon / MPS support** | Runs out-of-the-box on Mac M-series GPUs as well as CUDA. |
+| Feature | Description |
+|---------|-------------|
+| **Full metric logging** | Each epoch's metrics are recorded in CSV format for easy tracking. |
+| **Per-epoch checkpoints** | Every epoch generates a checkpoint, with only the best-performing checkpoint retained. |
+| **Smart best-model picker** | Selects the best checkpoint using a combined metric (70% class 1 F1 + 30% macro F1 by default). |
+| **Automatic reinforced training** | Optionally activates a reinforced training phase if class 1 F1 is below 0.60, using oversampling, larger batches, and weighted loss. |
+| **Apple Silicon / MPS support** | Supports Mac M-series GPUs natively, as well as CUDA devices. |
 
-Everything else stays unchanged.
+All other functionalities remain unchanged.
 
 ---
 
-## 2. New features in depth
+## 2. Features in depth
 
 ### 2.1 Per-epoch metric tracking
 
-* When you call `run_training`, the class now creates `./training_logs/training_metrics.csv`
-  with one line per epoch:
+Calling `run_training` generates `./training_logs/training_metrics.csv`, logging metrics per epoch:
 
 ```csv
-epoch,train_loss,val_loss,precision_0,recall_0,f1_0,support_0,precision_1,recall_1,f1_1,support_1,macro_f1
-1,0.4421,0.3875,0.79,0.83,0.81,412,0.55,0.38,0.45,88,0.63
+epoch,train_loss,val_loss,precision_0,recall_0,f1_0,support_0,precision_1,recall_1,f1_1,support_1,macro_f1,reinforced_phase
+1,0.4421,0.3875,0.79,0.83,0.81,412,0.55,0.38,0.45,88,0.63,normal
 ...
 ```
 
 ### 2.2 Best-model selection & checkpointing
 
-* After each epoch the code computes  
-  `combined_metric = 0.7 × F1(class 1) + 0.3 × macro_F1`.  
-* If this score beats the previous best, the model is written to  
+- After each epoch, the model is evaluated with:  
+  `combined_metric = 0.7 × F1(class 1) + 0.3 × macro_F1`.
+- If this metric surpasses the previous best, the checkpoint is saved to:  
   `./models/<your_name>_epoch_<n>/`.
-* The previous “best” folder is deleted, so you never keep more than one checkpoint per run.
-* A summary of every new best model goes to `training_logs/best_models.csv`.
+- Only the best model is kept, older checkpoints are deleted.
+- New best models are logged in `training_logs/best_models.csv`.
 
 ### 2.3 Reinforced training safety-net
 
-If the **final** best model still has **F1(class 1) < 0.60**:
+If the final model's **F1(class 1)** is **below 0.60** and `reinforced_learning=True`:
 
-1. A new dataloader is built with `WeightedRandomSampler` (oversamples the minority class).  
-2. Batch-size is doubled (64 by default) and learning-rate divided by 10.  
-3. A weighted cross-entropy loss emphasises class 1 (`pos_weight=2.0` by default).  
-4. Two quick extra epochs are run. Metrics land in `reinforced_training_metrics.csv`, and the model is saved under `./models/<name>_reinforced/`.
+1. Creates a dataloader using `WeightedRandomSampler` (oversamples minority class).
+2. Doubles batch size (64) and reduces learning rate (5e-6).
+3. Applies weighted cross-entropy loss (`pos_weight=2.0`).
+4. Runs additional epochs (`reinforced_n_epochs`, default=2), logs metrics to `training_metrics.csv`, and saves checkpoints under:  
+   `./models/<name>_reinforced_epoch_<n>/`
 
-### 2.4 Better device auto-detection
+### 2.4 Device auto-detection
 
-`BertBase.__init__` now tries in this order:
+Initialization (`BertBase.__init__`) prioritizes devices:
 
-1. CUDA → `torch.device("cuda")`  
-2. Apple Silicon MPS → `torch.device("mps")`  
+1. CUDA → `torch.device("cuda")`
+2. Apple Silicon MPS → `torch.device("mps")`
 3. CPU fallback
 
-No flags to set—just import and go.
+No additional configuration needed—import and start training.
 
 ---
 
@@ -70,25 +69,26 @@ No flags to set—just import and go.
 ```python
 from augmented_social_scientist import BertBase
 
-# 1. Tokenise / create loaders
+# 1. Tokenize and create data loaders
 model = BertBase(model_name="bert-base-cased")
 train_loader = model.encode(train_texts, train_labels)
-val_loader   = model.encode(val_texts,   val_labels)
+val_loader = model.encode(val_texts, val_labels)
 
-# 2. Train for 10 epochs and keep the best checkpoint
+# 2. Train the model
 model.run_training(
     train_loader,
     val_loader,
     n_epochs=10,
-    save_model_as="my_policy_model"
+    save_model_as="my_policy_model",
+    reinforced_learning=True
 )
 
-# 3. Load the best model later
+# 3. Load and predict later
 best_model = model.load_model("./models/my_policy_model")
 pred_proba = model.predict_with_model(val_loader, "./models/my_policy_model")
 ```
 
-During training you will see something like:
+Console output example:
 
 ```
 ======== Epoch 4 / 10 ========
@@ -98,28 +98,30 @@ Running Validation...
 New best model found at epoch 4 with combined metric=0.7123.
 ```
 
-And your disk will look like:
+Filesystem structure:
 
 ```
 models/
-└── my_policy_model/           # final best checkpoint
+└── my_policy_model/          # final best model
 training_logs/
 ├── training_metrics.csv
-├── best_models.csv
-└── reinforced_training_metrics.csv   # only if triggered
+└── best_models.csv
 ```
 
 ---
 
-## 4. Adjusting the knobs
+## 4. Adjustable parameters
 
-| Argument | Default | What it does |
-|----------|---------|--------------|
-| `f1_class_1_weight` | `0.7` | Weight for class 1 F1 in best-model metric. |
-| `metrics_output_dir` | `"./training_logs"` | Where all CSV logs are written. |
-| `pos_weight` | `None` | Tensor to re-weight classes *during normal* training. |
-| `n_epochs` | `3` | Training epochs before any reinforced pass. |
-| Reinforced LR / batch / epochs | hard-coded (`5e-6`, `64`, `2`) | Edit `reinforced_training()` if you need different values. |
+| Parameter | Default | Functionality |
+|-----------|---------|---------------|
+| `f1_class_1_weight` | `0.7` | Weight of class 1 F1 in best-model metric. |
+| `metrics_output_dir` | `"./training_logs"` | CSV metrics output directory. |
+| `pos_weight` | `None` | Class weighting during normal training. |
+| `n_epochs` | `3` | Number of epochs before reinforced training. |
+| `reinforced_learning` | `False` | Activate reinforced training if necessary. |
+| `reinforced_n_epochs` | `2` | Number of reinforced training epochs. |
+
+Adjust parameters directly when calling `run_training()`.
 
 ---
 
@@ -131,13 +133,13 @@ cd AugmentedSocialScientist
 pip install -e .
 ```
 
-Requires **Python 3.10+**, `torch >= 2.0`, `transformers >= 4.40`.
+Requires **Python 3.10+**, `torch >= 2.0`, and `transformers >= 4.40`.
 
 ---
 
 ## 6. License & citation
 
 This fork remains under the original **MIT License**.  
-If you use it in academic work, please cite the upstream paper [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).
+If used academically, please cite the original paper: [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).
 
 Happy fine-tuning!
