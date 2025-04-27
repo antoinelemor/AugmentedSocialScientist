@@ -9,76 +9,86 @@
 This repository is a **drop‑in replacement** for the original [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).  
 All base classes (`BertBase`, `CamembertBase`, …) function identically while exposing the additional capabilities listed below.
 
-| Feature | Description |
-|---------|-------------|
-| Metric logging | Each epoch is recorded to `training_logs/training_metrics.csv`, making post‑hoc analysis trivial. |
-| Per‑epoch checkpoints | A checkpoint is written after every epoch; only the best checkpoint (chosen by a combined metric) is kept to save disk space. |
-| Smart best‑model selection | By default the model maximising `0.7 × F1₁ + 0.3 × macro‑F1` is retained. The formula and weights are configurable. |
-| Reinforced training safety‑net | If the positive‑class F1 remains below 0.60, the library enters a reinforced phase with oversampling, weighted loss, and adaptive hyper‑parameters. |
-| Native Apple Silicon support | M‑series GPUs (MPS) are detected automatically; CUDA and CPU fallbacks remain available. |
+---
+
+## 2  Key capabilities
+
+| Capability                        | Description                                                                                                                                                                                         |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Comprehensive metric logging**  | Every epoch is appended to `training_logs/training_metrics.csv` (and `reinforced_training_metrics.csv` if applicable) with losses, per‑class precision/recall/F1, and macro F1.                     |
+| **Per‑epoch checkpoints**         | A lightweight checkpoint is written after each epoch; only the best checkpoint (see below) is retained to save disk space.                                                                          |
+| **Smart best‑model selection**    | By default the model maximising `0.7 × F1₁ + 0.3 × macro‑F1` is kept. The weight and even the formula can be overridden.                                                                            |
+| **Automatic reinforced training** | When the positive‑class F1 stays below 0.60, the library launches an adaptive reinforced phase with class‑weighted loss, oversampling, larger batches and a reduced learning rate.                  |
+| **Rescue logic for class 1**      | If the best normal model achieved `F1₁ == 0`, reinforced training considers any epoch where `F1₁ > f1_1_rescue_threshold` (default 0) as an improvement
+| **Apple Silicon / MPS support**   | Native GPU acceleration on macOS (M‑series) sits alongside CUDA and CPU fall‑backs—no flags required.                                                                                               |
 
 ---
 
-## 2. Feature details
+## 3  Metric tracking
 
-### 2.1 Metric tracking
+- Calling `run_training` automatically creates the CSV logs mentioned above.
+- A concise summary of any newly selected checkpoint (normal or reinforced) is appended to `training_logs/best_models.csv`.
 
-* `run_training` automatically creates `training_logs/training_metrics.csv` with per‑epoch loss and classification scores for each class plus the macro F1.
-* Whenever a new best checkpoint is identified, a concise summary is appended to `training_logs/best_models.csv`.
+---
 
-### 2.2 Checkpointing & best‑model selection
+## 4  Checkpointing & model selection
 
-* After each epoch a **combined metric** is computed (see formula above).
-* If the score improves, the model is saved to `models/<name>_epoch_<n>/` and the previous checkpoint is deleted.
-* The final best checkpoint is moved to `models/<name>/` when training completes.
+- The combined metric is re‑evaluated after every epoch.
+- When it improves, the corresponding checkpoint is moved to `models/<name>/` and the previous best is deleted.
+- Upon completion, the folder `models/<save_model_as>` always contains the best checkpoint (whether it came from the main loop or the reinforced phase).
 
-### 2.3 Reinforced‑training safety‑net
+---
 
-When the best model after the main loop has **F1(class 1) < 0.60** *and* `reinforced_learning=True`, a reinforced phase is triggered:
+## 5  Reinforced‑training safety‑net
 
-1. Minority‑class oversampling via `WeightedRandomSampler`.
-2. Larger batches (64) and a lower learning rate (`5 × 10⁻⁶`).
-3. Weighted cross‑entropy (`pos_weight = 2.0`).
-4. Two extra epochs by default, logged to `reinforced_training_metrics.csv`.
-5. If the reinforced checkpoint surpasses the previous best—either by the combined metric or by surpassing a rescue threshold when the original F1₁ was 0—it transparently replaces it.
+If `reinforced_learning=True` **and** `F1(class 1) < 0.60` at the end of the main loop, an additional cycle starts:
 
-### 2.4 Device auto‑detection
+1. **Oversampling** of the minority class through `WeightedRandomSampler`.
+2. **Batch size** doubled to 64 and **learning rate** reduced (default 5 e‑6).
+3. **Weighted cross‑entropy** with `pos_weight = 2.0` emphasises the positive class.
+4. Full logging to `reinforced_training_metrics.csv` and standard checkpoint selection.
+5. Optional **rescue logic** (`rescue_low_class1_f1=True`) promotes any epoch where `F1₁` breaks the zero‑barrier (threshold configurable).
 
-`BertBase.__init__()` selects the execution device in this order:
+---
+
+## 6  Device auto‑detection
+
+`BertBase.__init__()` selects the computation device in this order:
 
 1. CUDA
-2. Apple Silicon MPS
+2. Apple Silicon MPS
 3. CPU
 
-The chosen device is printed at runtime for clarity.
+A one‑line message confirms the choice at runtime.
 
 ---
 
-## 3. Quick‑start
+## 7  Quick‑start
 
 ```python
 from augmented_social_scientist import BertBase
 
-# 1 – Prepare dataloaders
+# 1 – encode data
 model = BertBase(model_name="bert-base-cased")
 train_loader = model.encode(train_texts, train_labels)
 val_loader   = model.encode(val_texts,   val_labels)
 
-# 2 – Train and keep the best checkpoint
-model.run_training(
+# 2 – train & keep the best checkpoint
+after_training_scores = model.run_training(
     train_loader,
     val_loader,
     n_epochs=10,
     save_model_as="my_policy_model",
-    reinforced_learning=True
+    reinforced_learning=True,
+    rescue_low_class1_f1=True
 )
 
-# 3 – Reload and predict
+# 3 – reload & predict
 best_model = model.load_model("./models/my_policy_model")
 probas = model.predict_with_model(val_loader, "./models/my_policy_model")
 ```
 
-During training you will see messages such as:
+Typical console excerpt:
 
 ```
 ======== Epoch 4 / 10 ========
@@ -88,36 +98,38 @@ Running Validation...
 New best model found at epoch 4 with combined metric = 0.7123
 ```
 
-Directory structure after training:
+Resulting layout:
 
 ```
 models/
-└── my_policy_model/                 # best checkpoint
+└── my_policy_model/                 # final checkpoint
 training_logs/
-├── training_metrics.csv
-├── best_models.csv
-└── reinforced_training_metrics.csv  # present only if reinforced phase ran
+├── training_metrics.csv             # main loop
+├── best_models.csv                  # checkpoint summary
+└── reinforced_training_metrics.csv  # only if reinforced phase executed
 ```
 
 ---
 
-## 4. Configuration reference
+## 8  Configuration reference
 
-| Argument | Default | Purpose |
-|----------|---------|---------|
-| `f1_class_1_weight` | `0.7` | Weight of positive‑class F1 in the combined metric. |
-| `metrics_output_dir` | `"./training_logs"` | Where CSV logs are stored. |
-| `pos_weight` | `None` | Class weights for the loss function during main training. |
-| `n_epochs` | `3` | Epochs in the main training loop. |
-| `n_epochs_reinforced` | `2` | Epochs in the reinforced phase. |
-| Reinforced LR | `5e‑6` | Learning rate during the reinforced phase. |
-| Reinforced batch | `64` | Batch size during the reinforced phase. |
+| Argument                | Default             | Purpose                                                   |
+| ----------------------- | ------------------- | --------------------------------------------------------- |
+| `n_epochs`              | `3`                 | Epochs in the main loop.                                  |
+| `lr`                    | `5e‑5`              | Learning rate in the main loop.                           |
+| `f1_class_1_weight`     | `0.7`               | Weight of `F1₁` in the combined metric.                   |
+| `metrics_output_dir`    | `"./training_logs"` | Location of CSV logs.                                     |
+| `pos_weight`            | `None`              | Class weights for the loss in the main loop.              |
+| `reinforced_learning`   | `False`             | Enable the safety‑net phase.                              |
+| `n_epochs_reinforced`   | `2`                 | Epochs in the reinforced phase.                           |
+| `rescue_low_class1_f1`  | `False`             | Activate the rescue logic for stalled `F1₁`.              |
+| `f1_1_rescue_threshold` | `0.0`               | Minimal `F1₁` improvement that triggers rescue promotion. |
 
-All parameters can be overridden in `run_training` or `reinforced_training` for fine‑grained control.
+Hyper‑parameters inside `reinforced_training` (batch size, LR, `pos_weight`) can be overridden by subclassing or editing the method.
 
 ---
 
-## 5. Installation
+## 9  Installation
 
 ```bash
 git clone https://github.com/<your‑handle>/AugmentedSocialScientist.git
@@ -129,10 +141,11 @@ pip install -e .
 
 ---
 
-## 6. License & citation
+
+## 10 License & citation
 
 This fork remains under the original **MIT License**.  
-If used academically, please cite the upstream repository: [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).
+If used academically, please cite the upstream repository: [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist), and this repo if you're cool.
 
 Happy fine‑tuning!
 
