@@ -34,19 +34,19 @@ class BertBase(BertABC):
             device: Device | None = None,
     ):
         """
-            Parameters
-            ----------
-            model_name: str, default='bert-base-cased'
-                    a model name from huggingface models: https://huggingface.co/models
+        Parameters
+        ----------
+        model_name: str, default='bert-base-cased'
+            a model name from huggingface models: https://huggingface.co/models
 
-            tokenizer: huggingface tokenizer, default=BertTokenizer.from_pretrained('bert-base-cased')
-                    tokenizer to use
+        tokenizer: huggingface tokenizer, default=BertTokenizer.from_pretrained('bert-base-cased')
+            tokenizer to use
 
-            model_sequence_classifier: huggingface sequence classifier, default=BertForSequenceClassification
-                    a huggingface sequence classifier that implements a from_pretrained() function
+        model_sequence_classifier: huggingface sequence classifier, default=BertForSequenceClassification
+            a huggingface sequence classifier that implements a from_pretrained() function
 
-            device: torch.Device, default=None
-                    device to use. If None, automatically set if presence of GPU is detected. CPU otherwise. 
+        device: torch.Device, default=None
+            device to use. If None, automatically set if presence of GPU is detected. CPU otherwise.
         """
         self.model_name = model_name
         self.tokenizer = tokenizer.from_pretrained(self.model_name)
@@ -54,7 +54,7 @@ class BertBase(BertABC):
         self.dict_labels = None
 
         # Users can set their device (flexibility),
-        # but device is set by default in case users are not familiar with Pytorch
+        # but device is set by default in case users are not familiar with PyTorch
         self.device = device
         if self.device is None:
             # If CUDA is available, use it
@@ -63,12 +63,12 @@ class BertBase(BertABC):
                 print('There are %d GPU(s) available.' % torch.cuda.device_count())
                 print('We will use GPU {}:'.format(torch.cuda.current_device()),
                       torch.cuda.get_device_name(torch.cuda.current_device()))
-            # If MPS is available, use it
+            # If MPS is available, use it (Apple Silicon GPU)
             elif torch.backends.mps.is_available():
                 self.device = torch.device("mps")
                 print('MPS is available. Using the Apple Silicon GPU!')
-            # Otherwise, fall back to CPU
             else:
+                # Otherwise, fall back to CPU
                 self.device = torch.device("cpu")
                 print('No GPU available, using the CPU instead.')
 
@@ -81,33 +81,33 @@ class BertBase(BertABC):
             add_special_tokens: bool = True
     ) -> DataLoader:
         """
-            Preprocessing of the training, test or prediction data.
-            The function will:
-                (1) tokenize the sequences and map tokens to their IDs;
-                (2) truncate or pad to 512 tokens (limit for BERT), create corresponding attention masks;
-                (3) return a pytorch dataloader object containing token ids, labels and attention masks.
+        Preprocessing of the training, test or prediction data.
+        The function will:
+            (1) tokenize the sequences and map tokens to their IDs;
+            (2) truncate or pad to 512 tokens (limit for BERT), create corresponding attention masks;
+            (3) return a PyTorch dataloader object containing token ids, labels and attention masks.
 
-            Parameters
-            ----------
-            sequences: 1D array-like
-                list of texts
+        Parameters
+        ----------
+        sequences: 1D array-like
+            list of texts
 
-            labels: 1D array-like or None, default=None
-                list of labels. None for unlabelled prediction data
+        labels: 1D array-like or None, default=None
+            list of labels. None for unlabelled prediction data
 
-            batch_size: int, default=32
-                batch size for pytorch dataloader
+        batch_size: int, default=32
+            batch size for PyTorch DataLoader
 
-            progress_bar: bool, default=True
-                if True, print progress bar for the processing
+        progress_bar: bool, default=True
+            if True, print progress bar for the processing
 
-            add_special_tokens: bool, default=True
-                if True, add '[CLS]' and '[SEP]' tokens
+        add_special_tokens: bool, default=True
+            if True, add '[CLS]' and '[SEP]' tokens
 
-            Return
-            ------
-            dataloader: torch.utils.data.DataLoader
-                pytorch dataloader object containing token ids, labels and attention masks
+        Returns
+        -------
+        dataloader: torch.utils.data.DataLoader
+            PyTorch DataLoader object containing token ids, labels and attention masks
         """
         input_ids = []
         if progress_bar:
@@ -118,19 +118,19 @@ class BertBase(BertABC):
         for sent in sent_loader:
             encoded_sent = self.tokenizer.encode(
                 sent,
-                add_special_tokens=add_special_tokens  
+                add_special_tokens=add_special_tokens
             )
             input_ids.append(encoded_sent)
 
-        max_len = min(max([len(sen) for sen in input_ids]), 512)
+        max_len = min(max(len(sen) for sen in input_ids), 512)
 
-        # Pad the input tokens with value 0 and truncate to MAX_LEN
+        # Pad the input tokens with value 0 and truncate to max_len
         pad = np.full((len(input_ids), max_len), 0, dtype='long')
         for idx, s in enumerate(input_ids):
             trunc = s[:max_len]
             pad[idx, :len(trunc)] = trunc
 
-        input_ids = pad 
+        input_ids = pad
 
         # Create attention masks
         attention_masks = []
@@ -138,12 +138,13 @@ class BertBase(BertABC):
             input_loader = tqdm(input_ids, desc="Creating attention masks")
         else:
             input_loader = input_ids
+
         for sent in input_loader:
             att_mask = [int(token_id > 0) for token_id in sent]
             attention_masks.append(att_mask)
 
         if labels is None:
-            # Convert to pytorch tensors
+            # Convert to PyTorch tensors
             inputs_tensors = torch.tensor(input_ids)
             masks_tensors = torch.tensor(attention_masks)
 
@@ -178,106 +179,122 @@ class BertBase(BertABC):
             pos_weight: torch.Tensor | None = None,
             metrics_output_dir: str = "./training_logs",
             best_model_criteria: str = "combined", 
-            f1_class_1_weight: float = 0.7
+            f1_class_1_weight: float = 0.7,
+            reinforced_learning: bool = False,
+            reinforced_n_epochs: int = 2
     ) -> Tuple[Any, Any, Any, Any]:
         """
-            Train, evaluate and save a BERT model. 
-            Additionally, this method:
-              - Logs training and validation metrics per epoch in a CSV file.
-              - Saves a model checkpoint each epoch.
-              - Keeps only the best model (removes the previous best) based on a selection metric
-                that favors class 1's F1 score and also considers the macro F1 (you can tune the weights).
-              - Logs all kept models in a separate CSV with their exact metrics.
-              - At the end, if the final best model's F1 on class 1 is below 0.6, triggers a reinforced training pass.
+        Train, evaluate and optionally save a BERT model. 
+        Additionally, this method:
+          - Logs training and validation metrics per epoch in a CSV file.
+          - Saves a model checkpoint each epoch if it outperforms the previous best model.
+          - Keeps only the best model (removes the previous best) based on a selection metric
+            that favors class 1's F1 score and also considers the macro F1 (you can tune the weights).
+          - Logs all kept models in a separate CSV with their exact metrics.
+          - At the end, if the final best model's F1 on class 1 is below 0.6 **and** `reinforced_learning=True`,
+            triggers a reinforced training pass for `reinforced_n_epochs` epochs with the same best-model selection
+            approach, oversampling, weighted loss, etc.
 
-            Parameters
-            ----------
-            train_dataloader: torch.utils.data.DataLoader 
-                training dataloader obtained with self.encode()
+        Parameters
+        ----------
+        train_dataloader: torch.utils.data.DataLoader
+            training dataloader obtained with self.encode()
 
-            test_dataloader: torch.utils.data.DataLoader 
-                test dataloader obtained with self.encode()
+        test_dataloader: torch.utils.data.DataLoader
+            test dataloader obtained with self.encode()
 
-            n_epochs: int, default=3
-                number of epochs
+        n_epochs: int, default=3
+            number of epochs for the main training
 
-            lr: float, default=5e-5
-                learning rate
+        lr: float, default=5e-5
+            learning rate for the main training
 
-            random_state: int, default=42
-                random state (for replicability)
+        random_state: int, default=42
+            random state (for reproducibility)
 
-            save_model_as: str, default=None
-                name of model to save as. The final best model will be saved under ./models/<model_name>.
-                If None, models are not saved to disk (though metrics CSVs will still be generated).
+        save_model_as: str, default=None
+            name of the model to save. The final best model will be saved under ./models/<model_name>.
+            If None, models are not saved to disk (though metrics CSVs will still be generated).
 
-            pos_weight: torch.Tensor, default=None
-                if not None, weights the loss to favor certain classes more heavily (only in a binary classification
-                setting typically).
+        pos_weight: torch.Tensor, default=None
+            if not None, weights the loss to favor certain classes more heavily 
+            (commonly used in binary classification).
 
-            metrics_output_dir: str, default="./training_logs"
-                directory where CSV files of metrics will be stored.
+        metrics_output_dir: str, default="./training_logs"
+            directory where CSV files of metrics will be stored.
 
-            best_model_criteria: str, default="combined"
-                selection criterion for the best model. Currently only "combined" is implemented,
-                which uses a weighted combination of class 1's F1 score and the macro F1.
+        best_model_criteria: str, default="combined"
+            selection criterion for the best model. Currently only "combined" is implemented,
+            which uses a weighted combination of class 1's F1 score and the macro F1.
 
-            f1_class_1_weight: float, default=0.7
-                weight given to class 1's F1 in the combined metric. The rest (1 - weight) is for the macro F1.
+        f1_class_1_weight: float, default=0.7
+            weight given to class 1's F1 in the combined metric. The rest (1 - weight) is for the macro F1.
 
-            Return
-            ------
-            scores: tuple (precision, recall, f1-score, support)
-                final evaluation scores from sklearn.metrics.precision_recall_fscore_support, 
-                for each label. 
-                shape: (4, n_labels)
+        reinforced_learning: bool, default=False
+            if True, and if after the main training the best model's F1 on class 1 is < 0.6, 
+            a reinforced training procedure will be triggered.
 
-            Notes
-            -----
-            The method also creates:
-                - "<metrics_output_dir>/training_metrics.csv": logs all metrics for each epoch.
-                - "<metrics_output_dir>/best_models.csv": logs the checkpoint of any new best model found during training.
+        reinforced_n_epochs: int, default=2
+            number of epochs to perform during the reinforced learning phase if triggered.
+
+        Returns
+        -------
+        scores: tuple (precision, recall, f1-score, support)
+            final evaluation scores from sklearn.metrics.precision_recall_fscore_support, 
+            for each label. shape: (4, n_labels)
+
+        Notes
+        -----
+        The method also creates:
+            - "<metrics_output_dir>/training_metrics.csv": logs all metrics for each epoch of the main training.
+            - "<metrics_output_dir>/best_models.csv": logs the checkpoint of any new best model found during the main training.
+            - If reinforced learning is triggered, additional epochs are appended to these files
+              (with a "reinforced_phase" marker in best_models.csv and in the training metrics).
         """
-
         # Ensure output directory for metrics exists
         os.makedirs(metrics_output_dir, exist_ok=True)
         training_metrics_csv = os.path.join(metrics_output_dir, "training_metrics.csv")
         best_models_csv = os.path.join(metrics_output_dir, "best_models.csv")
 
-        # Initialize CSV files with headers
-        with open(training_metrics_csv, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "epoch",
-                "train_loss",
-                "val_loss",
-                "precision_0",
-                "recall_0",
-                "f1_0",
-                "support_0",
-                "precision_1",
-                "recall_1",
-                "f1_1",
-                "support_1",
-                "macro_f1"
-            ])
-        with open(best_models_csv, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "epoch",
-                "train_loss",
-                "val_loss",
-                "precision_0",
-                "recall_0",
-                "f1_0",
-                "support_0",
-                "precision_1",
-                "recall_1",
-                "f1_1",
-                "support_1",
-                "macro_f1",
-                "saved_model_path"
-            ])
+        # Initialize CSV files with headers (if they don't exist yet)
+        # We will append to them if they do exist (e.g., from a previous run).
+        if not os.path.isfile(training_metrics_csv):
+            with open(training_metrics_csv, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "epoch",
+                    "train_loss",
+                    "val_loss",
+                    "precision_0",
+                    "recall_0",
+                    "f1_0",
+                    "support_0",
+                    "precision_1",
+                    "recall_1",
+                    "f1_1",
+                    "support_1",
+                    "macro_f1",
+                    "reinforced_phase"
+                ])
+        if not os.path.isfile(best_models_csv):
+            with open(best_models_csv, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "epoch",
+                    "train_loss",
+                    "val_loss",
+                    "precision_0",
+                    "recall_0",
+                    "f1_0",
+                    "support_0",
+                    "precision_1",
+                    "recall_1",
+                    "f1_1",
+                    "support_1",
+                    "macro_f1",
+                    "saved_model_path",
+                    "reinforced_phase"
+                ])
 
         # Unpack all test labels for evaluation
         test_labels = []
@@ -288,24 +305,25 @@ class BertBase(BertABC):
         if self.dict_labels is None:
             label_names = None
         else:
+            # label_names sorted by the index in self.dict_labels
             label_names = [str(x[0]) for x in sorted(self.dict_labels.items(), key=lambda x: x[1])]
 
-        # Set the seed value all over the place to make this reproducible.
+        # Set seed for reproducibility
         random.seed(random_state)
         np.random.seed(random_state)
         torch.manual_seed(random_state)
         torch.cuda.manual_seed_all(random_state)
 
-        # Load model
+        # Load the base model
         model = self.model_sequence_classifier.from_pretrained(
             self.model_name,
             num_labels=num_labels,
             output_attentions=False,
             output_hidden_states=False
         )
-
         model.to(self.device)
 
+        # Prepare the optimizer and scheduler
         optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
@@ -313,13 +331,13 @@ class BertBase(BertABC):
             num_training_steps=len(train_dataloader) * n_epochs
         )
 
-        train_loss_values = []
-        val_loss_values = []
-
         best_metric_val = -1.0
         best_model_path = None
         best_scores = None  # Will store final best (prec, rec, f1, support)
 
+        # =====================
+        #   MAIN TRAINING
+        # =====================
         for i_epoch in range(n_epochs):
             print("")
             print('======== Epoch {:} / {:} ========'.format(i_epoch + 1, n_epochs))
@@ -344,7 +362,7 @@ class BertBase(BertABC):
                 outputs = model(b_inputs, token_type_ids=None, attention_mask=b_masks)
                 logits = outputs[0]
 
-                # Weighted loss if pos_weight is specified
+                # Weighted loss if pos_weight is specified (for CrossEntropyLoss in multi-class)
                 if pos_weight is not None:
                     weight_tensor = torch.tensor([1.0, pos_weight.item()], device=self.device)
                     criterion = torch.nn.CrossEntropyLoss(weight=weight_tensor)
@@ -352,19 +370,15 @@ class BertBase(BertABC):
                     criterion = torch.nn.CrossEntropyLoss()
 
                 loss = criterion(logits, b_labels)
-
                 total_train_loss += loss.item()
 
                 loss.backward()
-
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                 optimizer.step()
                 scheduler.step()
 
             avg_train_loss = total_train_loss / len(train_dataloader)
-            train_loss_values.append(avg_train_loss)
-
             print("")
             print("  Average training loss: {0:.2f}".format(avg_train_loss))
             print("  Training took: {:}".format(self.format_time(time.time() - t0)))
@@ -395,22 +409,14 @@ class BertBase(BertABC):
 
             logits_complete = np.concatenate(logits_complete, axis=0)
             avg_val_loss = total_val_loss / len(test_dataloader)
-            val_loss_values.append(avg_val_loss)
-
             print("")
             print("  Average validation loss: {0:.2f}".format(avg_val_loss))
             print("  Validation took: {:}".format(self.format_time(time.time() - t0)))
 
             preds = np.argmax(logits_complete, axis=1).flatten()
             report = classification_report(test_labels, preds, target_names=label_names, output_dict=True)
-            # We can fetch the detailed metrics for classes 0 and 1 directly:
-            # - if this is a binary classification
-            # - or just focusing on class '0' and '1' in a multi-class scenario
-            #   (user specifically wanted a preference for class 1's F1)
 
-            # Safeguard: if it's only two classes, they are "0" and "1".
-            # If there's more, we pick "0" and "1" from the dictionary if available.
-            # We'll assume a binary setting as per the user request for class 1 preference:
+            # Extract class 0 and class 1 metrics
             class_0_metrics = report.get("0", {"precision": 0, "recall": 0, "f1-score": 0, "support": 0})
             class_1_metrics = report.get("1", {"precision": 0, "recall": 0, "f1-score": 0, "support": 0})
             macro_avg = report.get("macro avg", {"f1-score": 0})
@@ -424,13 +430,12 @@ class BertBase(BertABC):
             recall_1 = class_1_metrics["recall"]
             f1_1 = class_1_metrics["f1-score"]
             support_1 = class_1_metrics["support"]
-
             macro_f1 = macro_avg["f1-score"]
 
             # Print classification report to console
             print(classification_report(test_labels, preds, target_names=label_names))
 
-            # Append to training_metrics.csv
+            # Append epoch metrics to training_metrics.csv
             with open(training_metrics_csv, mode='a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow([
@@ -445,27 +450,19 @@ class BertBase(BertABC):
                     recall_1,
                     f1_1,
                     support_1,
-                    macro_f1
+                    macro_f1,
+                    "normal"
                 ])
 
             # Compute "combined" metric for best model selection
-            # By default, we do a weighted combination of F1(1) and macro_f1:
-            # metric = f1_class_1_weight * F1(1) + (1 - f1_class_1_weight) * macro_f1
             if best_model_criteria == "combined":
                 combined_metric = f1_class_1_weight * f1_1 + (1.0 - f1_class_1_weight) * macro_f1
             else:
-                # If needed, you can implement another strategy
                 combined_metric = (f1_1 + macro_f1) / 2.0
 
-            # Additional check to limit over or under fitting if needed:
-            # (For demonstration, this is where you might add advanced checks.)
-            # We'll keep it simple: if combined_metric improves, we keep the model.
-
             if combined_metric > best_metric_val:
-                # Save new best model
-                print(f"New best model found at epoch {i_epoch+1} with combined metric={combined_metric:.4f}.")
-
-                # If we had a previously saved best model, remove it
+                print(f"New best model found at epoch {i_epoch + 1} with combined metric={combined_metric:.4f}.")
+                # Remove the old best model if it existed
                 if best_model_path is not None:
                     try:
                         shutil.rmtree(best_model_path)
@@ -476,7 +473,7 @@ class BertBase(BertABC):
 
                 if save_model_as is not None:
                     # Save to epoch-specific folder
-                    best_model_path = f"./models/{save_model_as}_epoch_{i_epoch+1}"
+                    best_model_path = f"./models/{save_model_as}_epoch_{i_epoch + 1}"
                     os.makedirs(best_model_path, exist_ok=True)
 
                     model_to_save = model.module if hasattr(model, 'module') else model
@@ -489,7 +486,7 @@ class BertBase(BertABC):
                 else:
                     best_model_path = None  # Not saving to disk if user didn't specify
 
-                # Log best model info
+                # Log this new best model in best_models.csv
                 with open(best_models_csv, mode='a', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow([
@@ -505,108 +502,133 @@ class BertBase(BertABC):
                         f1_1,
                         support_1,
                         macro_f1,
-                        best_model_path if best_model_path else "Not saved to disk"
+                        best_model_path if best_model_path else "Not saved to disk",
+                        "normal"
                     ])
 
                 # Store final best metrics for return
                 best_scores = precision_recall_fscore_support(test_labels, preds)
 
-        # End of all epochs
+        # End of main training
         print("")
-        print("Training complete!")
+        print("Main training complete!")
 
+        # Rename best model path to final user path if save_model_as is provided
         if save_model_as is not None and best_model_path is not None:
-            # Rename final best model folder to something consistent
-            # so user can easily load from e.g. "./models/<save_model_as>"
             final_path = f"./models/{save_model_as}"
-            # If there's an older folder with the same name, remove it first:
             if os.path.exists(final_path):
                 shutil.rmtree(final_path)
             os.rename(best_model_path, final_path)
             best_model_path = final_path
             print(f"Best model is available at: {best_model_path}")
 
-        # After full training, check if class 1 F1 < 0.6 for the best model
+        # Check if we need to do reinforced learning
+        # (Only if best_f1_1 < 0.6 and user has reinforced_learning=True)
         if best_scores is not None:
-            # best_scores is a tuple: (precision, recall, f1, support), each shape (n_labels,)
-            # We assume binary classification => class 1 is index 1
-            best_f1_1 = best_scores[2][1]  # f1 array, index 1
-            if best_f1_1 < 0.6:
+            best_f1_1 = best_scores[2][1]  # f1 array, index 1 for class '1'
+            if best_f1_1 < 0.6 and reinforced_learning:
                 print(f"\nThe best model's F1 score for class 1 ({best_f1_1:.3f}) is below 0.60.")
                 print("Triggering reinforced training...")
-                # We can keep using the same final_path for reloading
-                # or directly pass the loaded best model in memory. Let's call a new method:
-                self.reinforced_training(
+
+                # Perform the reinforced training pass with the same best-model selection approach
+                self.run_training_reinforced(
                     train_dataloader=train_dataloader,
                     test_dataloader=test_dataloader,
                     base_model_path=best_model_path if best_model_path else None,
                     random_state=random_state,
                     metrics_output_dir=metrics_output_dir,
-                    save_model_as=save_model_as
+                    save_model_as=save_model_as,
+                    best_metric_val=best_metric_val,
+                    best_scores=best_scores,
+                    best_models_csv=best_models_csv,
+                    training_metrics_csv=training_metrics_csv,
+                    f1_class_1_weight=f1_class_1_weight,
+                    best_model_criteria=best_model_criteria,
+                    reinforced_n_epochs=reinforced_n_epochs
                 )
         else:
             print("No best scores found (unexpected). No reinforced training triggered.")
 
         return best_scores
 
-    def reinforced_training(
+    def run_training_reinforced(
         self,
         train_dataloader: DataLoader,
         test_dataloader: DataLoader,
         base_model_path: str | None,
-        random_state: int = 42,
-        metrics_output_dir: str = "./training_logs",
-        save_model_as: str | None = None
+        random_state: int,
+        metrics_output_dir: str,
+        save_model_as: str | None,
+        best_metric_val: float,
+        best_scores: Tuple[Any, Any, Any, Any],
+        best_models_csv: str,
+        training_metrics_csv: str,
+        f1_class_1_weight: float,
+        best_model_criteria: str,
+        reinforced_n_epochs: int
     ):
         """
         A "reinforced training" procedure that is triggered if the final best model
-        has a poor F1 score (<0.6) for class 1. This method:
-           - Applies oversampling of class 1
-           - Increases batch size (default = 64)
-           - Decreases the learning rate (e.g., 1/10 of original)
-           - Uses a weighted cross-entropy loss
+        has a poor F1 score (< 0.6) for class 1 and reinforced learning is activated.
+        This method:
+           - Loads the current best model.
+           - Uses oversampling of class 1 (WeightedRandomSampler).
+           - Increases batch size (default = 64).
+           - Decreases the learning rate (e.g., 5e-6).
+           - Uses a weighted cross-entropy loss, placing more weight on class 1.
+           - Performs 'reinforced_n_epochs' epochs of training with the same best-model selection 
+             logic as in the main training. Logs everything in the same CSV files, 
+             with a 'reinforced_phase' marker.
+
+        Parameters
+        ----------
+        train_dataloader: torch.utils.data.DataLoader
+            original training dataloader
+
+        test_dataloader: torch.utils.data.DataLoader
+            original test dataloader
+
+        base_model_path: str or None
+            path to the best model so far
+
+        random_state: int
+            random state for reproducibility
+
+        metrics_output_dir: str
+            directory to store CSV logs
+
+        save_model_as: str or None
+            name of the model to save under ./models/<model_name>
+
+        best_metric_val: float
+            the best combined metric value so far
+
+        best_scores: tuple
+            the best scores so far (precision, recall, f1, support)
+
+        best_models_csv: str
+            path to the CSV file that logs best models
+
+        training_metrics_csv: str
+            path to the CSV file that logs per-epoch metrics
+
+        f1_class_1_weight: float
+            weight for class 1's F1 when computing the combined metric
+
+        best_model_criteria: str
+            either "combined" or another strategy if implemented
+
+        reinforced_n_epochs: int
+            number of epochs to train in reinforced mode
         """
-
-        print("=== Reinforced Training Mode ===")
-        print("Oversampling class 1, bigger batch, lower LR, weighted loss...")
-
-        # We assume the original train_dataloader is based on a standard sampler
-        # We will reconstruct a new DataLoader with WeightedRandomSampler if possible
-        # We also reduce the LR by factor 10, or you can set your own logic
-        new_lr = 5e-6  # e.g. 1/10 of 5e-5
-        new_batch_size = 64
-        pos_weight = 2.0  # This can be adjusted to emphasize class 1
-
-        # Recreate DataLoader for oversampling
-        # The input train_dataloader is a TensorDataset; we can grab it:
-        dataset = train_dataloader.dataset
-        # dataset has [input_ids, attention_masks, labels], typically
-        labels = dataset.tensors[2].numpy()
-
-        # Calculate weights for each sample in the dataset based on labels
-        # e.g., 1 / count for each class
-        class_sample_count = np.bincount(labels)
-        weight_per_class = 1.0 / class_sample_count
-        sample_weights = [weight_per_class[t] for t in labels]
-        sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
-
-        new_train_dataloader = DataLoader(
-            dataset,
-            sampler=sampler,
-            batch_size=new_batch_size
-        )
-
-        # We could simply call `run_training` again with new parameters,
-        # but let's show a direct approach.
-
-        # Set the seed again for reproducibility
+        # Re-seed everything for reproducibility
         random.seed(random_state)
         np.random.seed(random_state)
         torch.manual_seed(random_state)
         torch.cuda.manual_seed_all(random_state)
 
+        # Load the best model so far (if path is provided), else load a fresh model
         if base_model_path:
-            # Load best model so far
             model = self.model_sequence_classifier.from_pretrained(base_model_path)
             print(f"Loaded base model from {base_model_path} for reinforced training.")
         else:
@@ -617,50 +639,60 @@ class BertBase(BertABC):
                 output_attentions=False,
                 output_hidden_states=False
             )
-            print("No base_model_path was provided. Using fresh model from self.model_name.")
+            print("No base_model_path provided. Using fresh model from self.model_name.")
 
         model.to(self.device)
 
-        # Weighted cross entropy: we set a pos_weight
-        # This is only valid for binary classification in PyTorch's BCEWithLogitsLoss
-        # But for CrossEntropyLoss with class weighting, let's do the following:
-        weight_tensor = torch.tensor([1.0, pos_weight], device=self.device)
-        criterion = torch.nn.CrossEntropyLoss(weight=weight_tensor)
+        # Create a WeightedRandomSampler for oversampling
+        dataset = train_dataloader.dataset
+        labels = dataset.tensors[2].numpy()
+        class_sample_count = np.bincount(labels)  # count of each class
+        weight_per_class = 1.0 / class_sample_count
+        sample_weights = [weight_per_class[t] for t in labels]
 
-        # Create optimizer with reduced LR
+        sampler = WeightedRandomSampler(
+            weights=sample_weights,
+            num_samples=len(sample_weights),
+            replacement=True
+        )
+
+        # Reinforced training hyperparams
+        new_lr = 5e-6  # smaller LR
+        new_batch_size = 64
+        pos_weight_value = 2.0  # extra weight on class 1
+
+        new_train_dataloader = DataLoader(
+            dataset,
+            sampler=sampler,
+            batch_size=new_batch_size
+        )
+
         optimizer = AdamW(model.parameters(), lr=new_lr, eps=1e-8)
-        n_epochs = 2  # a short "retraining" or "fine-tuning" pass
-
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
             num_warmup_steps=0,
-            num_training_steps=len(new_train_dataloader) * n_epochs
+            num_training_steps=len(new_train_dataloader) * reinforced_n_epochs
         )
 
-        # Prepare CSV logs
-        reinforced_metrics_csv = os.path.join(metrics_output_dir, "reinforced_training_metrics.csv")
-        with open(reinforced_metrics_csv, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "epoch",
-                "train_loss",
-                "val_loss",
-                "precision_0",
-                "recall_0",
-                "f1_0",
-                "support_0",
-                "precision_1",
-                "recall_1",
-                "f1_1",
-                "support_1",
-                "macro_f1"
-            ])
+        # We need the test labels again for final evaluation
+        test_labels = []
+        for batch in test_dataloader:
+            test_labels += batch[2].numpy().tolist()
 
-        for epoch in range(n_epochs):
-            print(f"\n=== Reinforced Training: Epoch {epoch+1}/{n_epochs} ===")
+        print("=== Reinforced Training Mode ===")
+        print("Oversampling class 1, bigger batch size, lower LR, weighted loss...")
+
+        # Start the reinforced training loop
+        for epoch in range(reinforced_n_epochs):
+            print(f"\n=== Reinforced Epoch {epoch + 1}/{reinforced_n_epochs} ===")
+
             t0 = time.time()
             model.train()
             running_loss = 0.0
+
+            # Weighted cross entropy for class imbalance
+            weight_tensor = torch.tensor([1.0, pos_weight_value], device=self.device)
+            criterion = torch.nn.CrossEntropyLoss(weight=weight_tensor)
 
             for step, train_batch in enumerate(new_train_dataloader):
                 b_inputs = train_batch[0].to(self.device)
@@ -676,7 +708,6 @@ class BertBase(BertABC):
 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
                 optimizer.step()
                 scheduler.step()
 
@@ -687,7 +718,6 @@ class BertBase(BertABC):
             model.eval()
             total_val_loss = 0.0
             logits_complete = []
-            test_labels_list = []
 
             for test_batch in test_dataloader:
                 b_inputs = test_batch[0].to(self.device)
@@ -702,13 +732,13 @@ class BertBase(BertABC):
 
                 total_val_loss += val_loss.item()
                 logits_complete.append(val_logits.detach().cpu().numpy())
-                test_labels_list.extend(b_labels.cpu().numpy())
 
             avg_val_loss = total_val_loss / len(test_dataloader)
             logits_complete = np.concatenate(logits_complete, axis=0)
             val_preds = np.argmax(logits_complete, axis=1).flatten()
 
-            report = classification_report(test_labels_list, val_preds, output_dict=True)
+            # Compute metrics
+            report = classification_report(test_labels, val_preds, output_dict=True)
             class_0_metrics = report.get("0", {"precision": 0, "recall": 0, "f1-score": 0, "support": 0})
             class_1_metrics = report.get("1", {"precision": 0, "recall": 0, "f1-score": 0, "support": 0})
             macro_avg = report.get("macro avg", {"f1-score": 0})
@@ -724,11 +754,10 @@ class BertBase(BertABC):
             support_1 = class_1_metrics["support"]
 
             macro_f1 = macro_avg["f1-score"]
+            print(classification_report(test_labels, val_preds))
 
-            print(classification_report(test_labels_list, val_preds))
-
-            # Save to reinforced_training_metrics.csv
-            with open(reinforced_metrics_csv, mode='a', newline='', encoding='utf-8') as f:
+            # Log metrics to the same training_metrics.csv, marked as reinforced
+            with open(training_metrics_csv, mode='a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow([
                     epoch + 1,
@@ -742,26 +771,75 @@ class BertBase(BertABC):
                     recall_1,
                     f1_1,
                     support_1,
-                    macro_f1
+                    macro_f1,
+                    "reinforced"
                 ])
 
-        # Optionally save the final reinforced model
-        if save_model_as is not None:
-            final_path = f"./models/{save_model_as}_reinforced"
+            # Best model selection logic (same as main training)
+            if best_model_criteria == "combined":
+                combined_metric = f1_class_1_weight * f1_1 + (1.0 - f1_class_1_weight) * macro_f1
+            else:
+                combined_metric = (f1_1 + macro_f1) / 2.0
+
+            if combined_metric > best_metric_val:
+                print(f"New best model found (reinforced) at epoch {epoch + 1} with combined metric={combined_metric:.4f}.")
+                # Remove the old best model if it existed
+                # (only if we had a path - might have been None if not saving previously)
+                if base_model_path is not None and os.path.exists(base_model_path):
+                    try:
+                        shutil.rmtree(base_model_path)
+                    except OSError:
+                        pass
+
+                best_metric_val = combined_metric
+
+                # Save new best model
+                if save_model_as is not None:
+                    # Save to epoch-specific (reinforced) folder
+                    best_model_path = f"./models/{save_model_as}_reinforced_epoch_{epoch + 1}"
+                    os.makedirs(best_model_path, exist_ok=True)
+
+                    model_to_save = model.module if hasattr(model, 'module') else model
+                    output_model_file = os.path.join(best_model_path, WEIGHTS_NAME)
+                    output_config_file = os.path.join(best_model_path, CONFIG_NAME)
+                    torch.save(model_to_save.state_dict(), output_model_file)
+                    model_to_save.config.to_json_file(output_config_file)
+                    self.tokenizer.save_vocabulary(best_model_path)
+                else:
+                    best_model_path = None
+
+                # Log best model info
+                with open(best_models_csv, mode='a', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        epoch + 1,
+                        avg_train_loss,
+                        avg_val_loss,
+                        precision_0,
+                        recall_0,
+                        f1_0,
+                        support_0,
+                        precision_1,
+                        recall_1,
+                        f1_1,
+                        support_1,
+                        macro_f1,
+                        best_model_path if best_model_path else "Not saved to disk",
+                        "reinforced"
+                    ])
+
+                best_scores = precision_recall_fscore_support(test_labels, val_preds)
+
+        # After reinforced training
+        print("\nReinforced training complete.")
+
+        # If we ended up with a new best model path, rename it to the final user path
+        if save_model_as is not None and best_model_path is not None:
+            final_path = f"./models/{save_model_as}"
             if os.path.exists(final_path):
                 shutil.rmtree(final_path)
-            os.makedirs(final_path, exist_ok=True)
-
-            model_to_save = model.module if hasattr(model, 'module') else model
-            output_model_file = os.path.join(final_path, WEIGHTS_NAME)
-            output_config_file = os.path.join(final_path, CONFIG_NAME)
-            torch.save(model_to_save.state_dict(), output_model_file)
-            model_to_save.config.to_json_file(output_config_file)
-            self.tokenizer.save_vocabulary(final_path)
-
-            print(f"Reinforced training model saved at: {final_path}")
-
-        print("Reinforced training complete.\n")
+            os.rename(best_model_path, final_path)
+            print(f"[Reinforced] Best model is now available at: {final_path}")
 
     def predict(
             self,
@@ -775,7 +853,7 @@ class BertBase(BertABC):
 
         Parameters
         ----------
-        dataloader: torch.utils.data.DataLoader 
+        dataloader: torch.utils.data.DataLoader
             prediction dataloader obtained with self.encode()
 
         model: huggingface model
@@ -787,8 +865,8 @@ class BertBase(BertABC):
         progress_bar: bool, default=True
             if True, print progress bar of prediction
 
-        Return
-        ------
+        Returns
+        -------
         pred: ndarray of shape (n_samples, n_labels)
             probabilities for each sequence (row) of belonging to each category (column)
         """
@@ -828,16 +906,16 @@ class BertBase(BertABC):
         model_path: str
     ):
         """
-        Load a saved model
+        Load a saved model.
 
         Parameters
         ----------
         model_path: str
             path to the saved model
 
-        Return
-        ------
-        model : huggingface model
+        Returns
+        -------
+        model: huggingface model
             loaded model
         """
         return self.model_sequence_classifier.from_pretrained(model_path)
@@ -854,6 +932,25 @@ class BertBase(BertABC):
         A convenience method that loads a model from a given path,
         moves it to the same device as self.device,
         and performs prediction on the provided dataloader.
+
+        Parameters
+        ----------
+        dataloader: torch.utils.data.DataLoader
+            dataloader obtained with self.encode()
+
+        model_path: str
+            path to the saved model
+
+        proba: bool, default=True
+            if True, return prediction probabilities; else, return logits
+
+        progress_bar: bool, default=True
+            if True, show a progress bar for prediction
+
+        Returns
+        -------
+        predictions: ndarray
+            probabilities or logits for each sample in the dataloader
         """
         model = self.load_model(model_path)
         model.to(self.device)
@@ -868,11 +965,13 @@ class BertBase(BertABC):
 
         Parameters
         ----------
-        elapsed: float or int, elapsed time in seconds
+        elapsed: float or int
+            elapsed time in seconds
 
         Returns
         -------
-        string in hh:mm:ss format
+        str
+            time in hh:mm:ss format
         """
         elapsed_rounded = int(round(elapsed))
         return str(datetime.timedelta(seconds=elapsed_rounded))
