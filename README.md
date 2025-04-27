@@ -128,7 +128,7 @@ Adjust parameters directly when calling `run_training()`.
 ## 5. Installation
 
 ```bash
-git clone https://github.com/<your-handle>/AugmentedSocialScientist.git
+git clone https://github.com/antoinelemor/AugmentedSocialScientist.git
 cd AugmentedSocialScientist
 pip install -e .
 ```
