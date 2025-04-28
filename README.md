@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-This repository is a **drop‑in replacement** for the original [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).  
+This repository is a fork with new functionnalities of the original [rubingshen/AugmentedSocialScientist](https://github.com/rubingshen/AugmentedSocialScientist).  
 All base classes (`BertBase`, `CamembertBase`, …) function identically while exposing the additional capabilities listed below.
 
 ---
