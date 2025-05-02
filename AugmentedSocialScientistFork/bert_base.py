@@ -22,7 +22,7 @@ from transformers import (
     CONFIG_NAME
 )
 
-from AugmentedSocialScientist.bert_abc import BertABC
+from AugmentedSocialScientistFork.bert_abc import BertABC
 
 
 class BertBase(BertABC):
