@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='augmented-social-scientist',
+    name='AugmentedSocialScientistFork',
     version='2.2.1.post1',
     description='Modified version of AugmentedSocialScientist for custom research purposes',
     author='Antoine Lemor',
