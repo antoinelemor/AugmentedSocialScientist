@@ -6,7 +6,7 @@ setup(
     description='Modified version of AugmentedSocialScientist for custom research purposes',
     author='Antoine Lemor',
     author_email='antoine.lemor@umontreal.ca',
-    url='https://github.com/antoinelemor/AugmentedSocialScientist',  # <-- Change to your GitHub URL if you want
+    url='https://github.com/antoinelemor/AugmentedSocialScientistFork', 
     packages=find_packages(where='.'),
     install_requires=[
         'torch>=1.13',
