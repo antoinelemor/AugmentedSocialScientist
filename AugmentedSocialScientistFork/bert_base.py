@@ -188,7 +188,7 @@ class BertBase(BertABC):
         """
         Train, evaluate, and (optionally) save a BERT model. This method also logs training and validation
         metrics per epoch, handles best-model selection, and can optionally trigger reinforced learning if
-        the best F1 on class 1 is below 0.6 at the end of normal training.
+        the best F1 on class 1 is below 0.7 at the end of normal training.
 
         This method can also (optionally) apply a "rescue" logic for class 1 F1 scores that remain at 0
         after normal training: if ``rescue_low_class1_f1=True`` and the best model's F1 for class 1 is 0,
@@ -230,7 +230,7 @@ class BertBase(BertABC):
             Weight for F1(class 1) in the combined metric. The remaining (1 - weight) goes to macro F1.
 
         reinforced_learning: bool, default=False
-            If True, and if the best model after normal training has F1(class 1) < 0.6,
+            If True, and if the best model after normal training has F1(class 1) < 0.7,
             a reinforced training phase will be triggered.
 
         n_epochs_reinforced: int, default=2
@@ -540,8 +540,8 @@ class BertBase(BertABC):
         # ==================== Reinforced Training Check ====================
         if best_scores is not None:
             best_f1_1 = best_scores[2][1]  # best_scores = (precision, recall, f1, support)
-            if best_f1_1 < 0.6 and reinforced_learning:
-                print(f"\nThe best model's F1 score for class 1 ({best_f1_1:.3f}) is below 0.60.")
+            if best_f1_1 < 0.7 and reinforced_learning:
+                print(f"\nThe best model's F1 score for class 1 ({best_f1_1:.3f}) is below 0.70.")
                 print("Reinforced learning is enabled. Triggering reinforced training...")
 
                 # Perform reinforced training
@@ -588,7 +588,7 @@ class BertBase(BertABC):
     ) -> Tuple[float, str | None, Tuple[Any, Any, Any, Any] | None]:
         """
         A "reinforced training" procedure that is triggered if the final best model from normal
-        training has F1(class 1) < 0.6 (and reinforced_learning is True). This method:
+        training has F1(class 1) < 0.7 (and reinforced_learning is True). This method:
           - Oversamples class 1 via WeightedRandomSampler.
           - Increases batch size to 64 (by default).
           - Reduces learning rate (e.g., 1/10 of the original normal training).
