@@ -13,10 +13,13 @@ from torch.types import Device
 from torch.utils.data import TensorDataset, SequentialSampler, DataLoader, WeightedRandomSampler
 from tqdm.auto import tqdm
 from sklearn.metrics import classification_report, precision_recall_fscore_support
+try:                             # transformers >= 5
+    from torch.optim import AdamW
+except ImportError:              # transformers <= 4
+    from transformers.optimization import AdamW
 from transformers import (
     BertForSequenceClassification,
     BertTokenizer,
-    AdamW,
     get_linear_schedule_with_warmup,
     WEIGHTS_NAME,
     CONFIG_NAME
